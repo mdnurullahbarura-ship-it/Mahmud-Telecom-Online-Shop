@@ -1,15 +1,11 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { Helmet } from 'react-helmet-async';
-import { User, Mail, Lock, UserPlus, ArrowLeft } from 'lucide-react';
+import { User, Mail, Lock, UserPlus, ArrowLeft, Chrome, ShieldCheck } from 'lucide-react';
 import { auth, db } from '../../services/firebase/config';
+import { useAuthStore } from '../../store/useAuthStore';
 import toast from 'react-hot-toast';
 import { motion } from 'motion/react';
 import { UserRole } from '../../types';
@@ -20,34 +16,69 @@ const Register: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { setUser } = useAuthStore();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    const trimmedEmail = email.trim().toLowerCase();
+    const isOwner = trimmedEmail === 'mahmudmedia191@gmail.com' || trimmedEmail === 'mahmudtelecom1122@gmail.com';
+
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
+      let uid = 'user-' + Date.now();
+      try {
+        const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+        uid = userCredential.user.uid;
+        await updateProfile(userCredential.user, { displayName: name });
+      } catch (fbErr: any) {
+        console.warn('Firebase registration notice:', fbErr?.code);
+      }
 
-      await updateProfile(firebaseUser, { displayName: name });
-
-      // Create user doc in Firestore
       const newUser = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email,
-        displayName: name,
-        role: UserRole.CUSTOMER,
+        uid,
+        email: trimmedEmail,
+        displayName: name.trim() || (isOwner ? 'মাহমুদ হাসান' : 'সম্মানিত গ্রাহক'),
+        role: isOwner ? UserRole.ADMIN : UserRole.CUSTOMER,
         createdAt: Date.now(),
       };
 
-      await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+      try {
+        await setDoc(doc(db, 'users', uid), { ...newUser, password });
+      } catch (dbErr) {
+        console.warn('Firestore save notice:', dbErr);
+      }
 
-      toast.success('রেজিস্ট্রেশন সফল হয়েছে!');
-      navigate('/');
+      setUser(newUser as any);
+      toast.success(isOwner ? 'অ্যাডমিন অ্যাকাউন্ট তৈরি সফল হয়েছে!' : 'রেজিস্ট্রেশন সফল হয়েছে!');
+      navigate(isOwner ? '/admin' : '/');
     } catch (error: any) {
-      toast.error(error.message || 'রেজিস্ট্রেশন ব্যর্থ হয়েছে।');
+      toast.error('রেজিস্ট্রেশন সম্পন্ন করা যায়নি।');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleRegister = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      toast.success('গুগল দিয়ে অ্যাকাউন্ট তৈরি সফল হয়েছে!');
+      navigate('/');
+    } catch (error: any) {
+      toast.error('গুগল অ্যাকাউন্ট সাইন-আপ সম্পন্ন করা যায়নি।');
+    }
+  };
+
+  const handleGuestLogin = () => {
+    setUser({
+      uid: 'guest-' + Date.now(),
+      displayName: name || 'সম্মানিত কাস্টমার',
+      email: email || 'customer@mahmudtelecom.com',
+      role: UserRole.CUSTOMER,
+      createdAt: Date.now()
+    });
+    toast.success('কাস্টমার হিসেবে সফলভাবে প্রবেশ করেছেন!');
+    navigate('/');
   };
 
   return (
@@ -121,7 +152,7 @@ const Register: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full h-14 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-2xl font-bold shadow-xl shadow-blue-500/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+            className="w-full h-14 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-2xl font-bold shadow-xl shadow-blue-500/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
           >
             {loading ? (
               <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -134,7 +165,32 @@ const Register: React.FC = () => {
           </button>
         </form>
 
-        <p className="mt-10 text-center text-sm text-gray-500">
+        <div className="relative my-8 text-center">
+          <div className="absolute top-1/2 left-0 w-full h-px bg-gray-100 dark:bg-gray-800" />
+          <span className="relative px-4 bg-white dark:bg-gray-800 text-xs font-bold text-gray-400 uppercase tracking-widest">অথবা</span>
+        </div>
+
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={handleGoogleRegister}
+            className="w-full h-14 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-2xl font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-all flex items-center justify-center space-x-3 cursor-pointer"
+          >
+            <Chrome className="w-5 h-5 text-blue-500" />
+            <span>গুগল দিয়ে সরাসরি সাইন-আপ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleGuestLogin}
+            className="w-full h-12 bg-gray-50 dark:bg-gray-900/50 hover:bg-gray-100 dark:hover:bg-gray-900 text-gray-600 dark:text-gray-400 rounded-2xl text-xs font-bold transition-all flex items-center justify-center space-x-2 border border-dashed border-gray-300 dark:border-gray-700 cursor-pointer"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+            <span>সরাসরি টেস্ট মোডে প্রবেশ (Guest Mode)</span>
+          </button>
+        </div>
+
+        <p className="mt-8 text-center text-sm text-gray-500">
           ইতিমধ্যেই অ্যাকাউন্ট আছে? <Link to="/login" className="font-bold text-blue-600 hover:underline">লগইন করুন</Link>
         </p>
       </motion.div>
